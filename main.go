@@ -234,35 +234,24 @@ func handleConnection(c net.Conn) {
 		return
 	}
 
-	ioErrs := make(chan error, 2)
-	cmdErr := make(chan error, 1)
+	errs := make(chan error, 3)
 
 	go func() {
 		_, err := io.Copy(c, pty)
-		ioErrs <- err
+		errs <- err
 	}()
 	go func() {
 		_, err := io.Copy(pty, c)
-		ioErrs <- err
+		errs <- err
 	}()
 	go func() {
-		cmdErr <- cmd.Wait()
+		errs <- cmd.Wait()
 	}()
 
-	// Wait for a single error, then shut everything down. Since returning from this function closes the connection, we just fall through in both cases.
-	select {
-	case err = <-ioErrs:
-		if err != io.EOF {
-			log.Printf("warn: I/O error on connection from %s: %s", c.RemoteAddr(), err)
-		} else {
-			log.Printf("warn: EOF on connection from %s", c.RemoteAddr())
-		}
-
-		// TODO: maybe have an option to kill the command when there's an error?
-	case err = <-cmdErr:
-		log.Printf("trace: command from %s exited", c.RemoteAddr())
-	}
-
+	// Wait for a single error, then shut everything down. Since returning from
+	// this function closes the connection, we just read a single error and
+	// then continue.
+	<-errs
 	log.Printf("info: connection from %s finished", c.RemoteAddr())
 }
 
